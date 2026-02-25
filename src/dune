@@ -1,0 +1,4 @@
+(library
+ (name cows)
+ (public_name cows)
+ (libraries base64 digestif digestif.c cohttp cohttp-eio logs))

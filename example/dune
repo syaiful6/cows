@@ -1,0 +1,5 @@
+(executable
+ (name echo)
+ (public_name cows-echo)
+ (enabled_if (= %{profile} dev))
+ (libraries cows cohttp-eio eio_main))
