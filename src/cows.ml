@@ -7,18 +7,10 @@ module Private = struct
   module Handshake = Handshake
 end
 
-type close_reason = Conn.close_reason =
-  | Clean of int * string
-  | Abnormal
-
 exception Connection_closed = Conn.Connection_closed
 exception Protocol_error = Conn.Protocol_error
 
-type message = Conn.message =
-  | Text of string
-  | Binary of string
-  | Ping of string
-  | Pong of string
+module Message = Conn.Message
 
 type conn = Conn.t
 

@@ -1,6 +1,6 @@
-(* WebSocket payload masking per RFC 6455 §5.3.
-   Masking is symmetric: applying the same key twice recovers the original.
-   The key is a 32-bit value; byte j of the key is (key lsr ((3 - j) * 8)) land 0xff. *)
+(* WebSocket payload masking per RFC 6455 §5.3. Masking is symmetric: applying
+   the same key twice recovers the original. The key is a 32-bit value; byte j
+   of the key is (key lsr ((3 - j) * 8)) land 0xff. *)
 
 let apply key data =
   let len = String.length data in

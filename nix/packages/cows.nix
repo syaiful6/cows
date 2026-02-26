@@ -5,6 +5,7 @@
   eio,
   cohttp,
   cohttp-eio,
+  logs,
   base64,
   alcotest,
   doCheck ? true,
@@ -23,7 +24,6 @@ buildDunePackage {
       fileset = fs.unions [
         ../../src
         ../../dune-project
-        # uncomment this after dune generates the file
         ../../cows.opam
       ];
     };
@@ -31,6 +31,7 @@ buildDunePackage {
   # add your dependencies here
   propagatedBuildInputs = [
     digestif
+    logs
     eio
     cohttp
     cohttp-eio

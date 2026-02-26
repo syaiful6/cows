@@ -1,6 +1,6 @@
-(* UTF-8 validation per RFC 3629.
-   Returns false on: overlong encodings, surrogates (U+D800-U+DFFF),
-   codepoints above U+10FFFF, truncated sequences, and invalid lead bytes. *)
+(* UTF-8 validation per RFC 3629. Returns false on: overlong encodings,
+   surrogates (U+D800-U+DFFF), codepoints above U+10FFFF, truncated sequences,
+   and invalid lead bytes. *)
 
 let is_valid s =
   let n = String.length s in
@@ -20,7 +20,8 @@ let is_valid s =
         let b1 = Char.code (String.unsafe_get s (!i + 1)) in
         if b1 lsr 6 <> 0b10 then raise Exit;
         i := !i + 2
-      end else if b0 lsr 4 = 0b1110
+      end
+      else if b0 lsr 4 = 0b1110
       then begin
         (* 1110xxxx 10xxxxxx 10xxxxxx: U+0800..U+FFFF *)
         if !i + 2 >= n then raise Exit;
@@ -32,7 +33,8 @@ let is_valid s =
         if b0 = 0xED && b1 >= 0xA0 then raise Exit;
         (* surrogate: U+D800..U+DFFF *)
         i := !i + 3
-      end else if b0 lsr 3 = 0b11110
+      end
+      else if b0 lsr 3 = 0b11110
       then begin
         (* 11110xxx 10xxxxxx 10xxxxxx 10xxxxxx: U+10000..U+10FFFF *)
         if b0 > 0xF4 then raise Exit;
@@ -48,8 +50,10 @@ let is_valid s =
         if b0 = 0xF4 && b1 > 0x8F then raise Exit;
         (* above U+10FFFF *)
         i := !i + 4
-      end else raise Exit
+      end
+      else raise Exit
       (* 10xxxxxx continuation as lead, or 0xF8-0xFF *)
     done;
     true
-  with Exit -> false
+  with
+  | Exit -> false

@@ -1,3 +1,7 @@
+module Logs =
+  (val Logs.src_log
+         (Logs.Src.create "cows.connections" ~doc:"Cows connection module"))
+
 module Eio_reader = struct
   type t = Eio.Buf_read.t
 
@@ -20,18 +24,27 @@ type role =
   | Server
   | Client
 
-type close_reason =
-  | Clean of int * string
-  | Abnormal
-
-exception Connection_closed of close_reason
+exception Connection_closed
+exception Close_request of int * string
 exception Protocol_error of string
 
-type message =
-  | Text of string
-  | Binary of string
-  | Ping of string
-  | Pong of string
+module Message = struct
+  type control =
+    [ `Ping of string
+    | `Pong of string
+    | `Close of int * string
+    ]
+
+  type data =
+    [ `Text of string
+    | `Binary of string
+    ]
+
+  type t =
+    [ control
+    | data
+    ]
+end
 
 type t =
   { ic : Eio.Buf_read.t
@@ -67,25 +80,30 @@ let write_frame conn frame =
       let key = fresh_mask_key () in
       Frame.serialize ~key (module Eio_writer) conn.oc frame)
 
-let send conn msg =
-  let frame =
-    match msg with
-    | Text content -> make_frame `Text content
-    | Binary content -> make_frame `Binary content
-    | Ping content -> make_frame `Ping content
-    | Pong content -> make_frame `Pong content
-  in
-  write_frame conn frame
-
-let close ?(code = 1000) ?(reason = "") conn =
+let create_close_frame ?(code = 1000) ?(reason = "") () =
   let n = String.length reason in
   let buf = Bytes.create (2 + n) in
   Bytes.set buf 0 (Char.chr ((code lsr 8) land 0xff));
   Bytes.set buf 1 (Char.chr (code land 0xff));
   Bytes.blit_string reason 0 buf 2 n;
-  write_frame conn (make_frame `Close (Bytes.unsafe_to_string buf));
-  (* Flush immediately so the Close frame reaches the peer before we return. *)
-  Eio.Buf_write.flush conn.oc
+  make_frame `Close (Bytes.unsafe_to_string buf)
+
+let send conn msg =
+  let is_close, frame =
+    match msg with
+    | `Text content -> false, make_frame `Text content
+    | `Binary content -> false, make_frame `Binary content
+    | `Ping content -> false, make_frame `Ping content
+    | `Pong content -> false, make_frame `Pong content
+    | `Close (code, reason) -> true, create_close_frame ~code ~reason ()
+  in
+  write_frame conn frame;
+  if is_close
+  then begin
+    Eio.Buf_write.flush conn.oc
+  end
+
+let close ?(code = 1000) ?(reason = "") conn = send conn (`Close (code, reason))
 
 let parse_close_payload content =
   if String.length content >= 2
@@ -108,21 +126,17 @@ let frame_error_to_string = function
 
 let rec recv conn =
   match Frame.parse (module Eio_reader) conn.ic with
-  | Error Frame.Insufficient_data -> raise (Connection_closed Abnormal)
+  | Error Frame.Insufficient_data ->
+    Logs.debug (fun f -> f "Connection closed: insufficient data");
+    raise Connection_closed
   | Error e -> raise (Protocol_error (frame_error_to_string e))
   | Ok frame ->
     (match frame.Frame.opcode with
     | `Close ->
       let code, reason = parse_close_payload frame.Frame.content in
-      (* Echo the Close frame and flush before raising so the peer sees it. *)
-      (try
-         write_frame conn (make_frame `Close frame.Frame.content);
-         Eio.Buf_write.flush conn.oc
-       with
-      | _ -> ());
-      raise (Connection_closed (Clean (code, reason)))
-    | `Ping -> Ping frame.Frame.content
-    | `Pong -> Pong frame.Frame.content
+      `Close (code, reason)
+    | `Ping -> `Ping frame.Frame.content
+    | `Pong -> `Pong frame.Frame.content
     | (`Text | `Binary) as opcode ->
       if frame.Frame.fin
       then
@@ -130,8 +144,8 @@ let rec recv conn =
         | `Text ->
           if not (Utf8.is_valid frame.Frame.content)
           then raise (Protocol_error "invalid UTF-8 in text frame");
-          Text frame.Frame.content
-        | `Binary -> Binary frame.Frame.content
+          `Text frame.Frame.content
+        | `Binary -> `Binary frame.Frame.content
       else begin
         (* First fragment: stash opcode and start accumulator. *)
         conn.frag_opcode <- Some opcode;
@@ -155,8 +169,8 @@ let rec recv conn =
           | `Text ->
             if not (Utf8.is_valid content)
             then raise (Protocol_error "invalid UTF-8 in text frame");
-            Text content
-          | `Binary -> Binary content
+            `Text content
+          | `Binary -> `Binary content
         end
         else recv conn)
     | `Ctrl _ | `Non_ctrl _ -> raise (Protocol_error "unknown opcode"))
@@ -177,4 +191,11 @@ let upgrade req handler =
       ( response
       , fun ic oc ->
           let conn = create ~role:Server ic oc in
-          handler conn )
+          (* wrap user handler so we guarantee that any exceptions are caught,
+             and we correctly close the connection, users still able to catch
+             those exceptions *)
+          try handler conn with
+          | Connection_closed ->
+            Logs.debug (fun f -> f "Connection closed by peer")
+          | Protocol_error msg ->
+            Logs.info (fun f -> f "Protocol error: %s" msg) )

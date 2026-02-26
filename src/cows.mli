@@ -71,28 +71,36 @@ module Private : sig
   module Handshake = Handshake
 end
 
-type close_reason = Conn.close_reason =
-  | Clean of int * string
-  | Abnormal
-
-exception Connection_closed of Conn.close_reason
+exception Connection_closed
 exception Protocol_error of string
 
-type message =
-  | Text of string
-  | Binary of string
-  | Ping of string
-  | Pong of string
+module Message : sig
+  type control =
+    [ `Ping of string
+    | `Pong of string
+    | `Close of int * string
+    ]
+
+  type data =
+    [ `Text of string
+    | `Binary of string
+    ]
+
+  type t =
+    [ control
+    | data
+    ]
+end
 
 type conn
 
-val recv : conn -> message
-val send : conn -> message -> unit
+val recv : conn -> Message.t
+val send : conn -> Message.t -> unit
 val close : ?code:int -> ?reason:string -> conn -> unit
 
 val upgrade :
    Http.Request.t
-  -> (conn -> 'b)
-  -> [> `Expert of Http.Response.t * (Eio.Buf_read.t -> Eio.Buf_write.t -> 'b)
+  -> (conn -> unit)
+  -> [> `Expert of Http.Response.t * (Eio.Buf_read.t -> Eio.Buf_write.t -> unit)
      | `Response of Cohttp_eio.Server.response Cohttp_eio.Server.IO.t
      ]
