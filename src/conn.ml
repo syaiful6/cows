@@ -81,6 +81,9 @@ let write_frame conn frame =
       Frame.serialize ~key (module Eio_writer) conn.oc frame)
 
 let create_close_frame ?(code = 1000) ?(reason = "") () =
+  (* 1005 (no status received) must never appear on the wire per RFC 6455
+     §7.4.1; substitute 1000 (normal closure). *)
+  let code = if code = 1005 then 1000 else code in
   let n = String.length reason in
   let buf = Bytes.create (2 + n) in
   Bytes.set buf 0 (Char.chr ((code lsr 8) land 0xff));
@@ -105,16 +108,17 @@ let send conn msg =
 
 let close ?(code = 1000) ?(reason = "") conn = send conn (`Close (code, reason))
 
-let parse_close_payload content =
-  if String.length content >= 2
-  then
-    let code =
-      (Char.code (String.unsafe_get content 0) lsl 8)
-      lor Char.code (String.unsafe_get content 1)
-    in
-    let reason = String.sub content 2 (String.length content - 2) in
-    code, reason
-  else 1005, ""
+let is_valid_close_code code =
+  (code >= 1000 && code <= 1003)
+  || (code >= 1007 && code <= 1011)
+  || (code >= 3000 && code <= 4999)
+
+let fail_with_close conn msg =
+  (try
+     write_frame conn (create_close_frame ~code:1002 ());
+     Eio.Buf_write.flush conn.oc
+   with _ -> ());
+  raise (Protocol_error msg)
 
 let frame_error_to_string = function
   | Frame.Reserved_bits_set -> "reserved bits set"
@@ -133,12 +137,30 @@ let rec recv conn =
   | Ok frame ->
     (match frame.Frame.opcode with
     | `Close ->
-      let code, reason = parse_close_payload frame.Frame.content in
-      `Close (code, reason)
+      let content = frame.Frame.content in
+      let n = String.length content in
+      if n = 1
+      then fail_with_close conn "close frame with 1-byte payload"
+      else if n = 0
+      then `Close (1005, "")
+      else
+        let code =
+          (Char.code (String.unsafe_get content 0) lsl 8)
+          lor Char.code (String.unsafe_get content 1)
+        in
+        let reason = String.sub content 2 (n - 2) in
+        if not (is_valid_close_code code)
+        then
+          fail_with_close conn (Printf.sprintf "invalid close code %d" code)
+        else if not (Utf8.is_valid reason)
+        then fail_with_close conn "invalid UTF-8 in close reason"
+        else `Close (code, reason)
     | `Ping -> `Ping frame.Frame.content
     | `Pong -> `Pong frame.Frame.content
     | (`Text | `Binary) as opcode ->
-      if frame.Frame.fin
+      if Option.is_some conn.frag_opcode
+      then raise (Protocol_error "new data frame during fragmented message")
+      else if frame.Frame.fin
       then
         match opcode with
         | `Text ->

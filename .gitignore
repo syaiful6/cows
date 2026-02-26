@@ -9,6 +9,9 @@ _build
 # Nix
 result
 
+# autobahn reports
+reports/
+
 .envrc.local
 .direnv
 
