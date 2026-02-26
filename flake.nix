@@ -42,6 +42,9 @@
           default = self.packages.${system}.cows;
           inherit (pkgs.ocamlPackages)
             cows
+            cohttp
+            cohttp-eio
+            http
             ;
         }
       );

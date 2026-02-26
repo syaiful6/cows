@@ -117,7 +117,8 @@ let fail_with_close conn msg =
   (try
      write_frame conn (create_close_frame ~code:1002 ());
      Eio.Buf_write.flush conn.oc
-   with _ -> ());
+   with
+  | _ -> ());
   raise (Protocol_error msg)
 
 let frame_error_to_string = function
@@ -150,8 +151,7 @@ let rec recv conn =
         in
         let reason = String.sub content 2 (n - 2) in
         if not (is_valid_close_code code)
-        then
-          fail_with_close conn (Printf.sprintf "invalid close code %d" code)
+        then fail_with_close conn (Printf.sprintf "invalid close code %d" code)
         else if not (Utf8.is_valid reason)
         then fail_with_close conn "invalid UTF-8 in close reason"
         else `Close (code, reason)

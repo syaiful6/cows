@@ -39,6 +39,9 @@ let
   ];
   packageNames = [
     "cows"
+    "cohttp"
+    "cohttp-eio"
+    "http"
   ];
   outputs = pkgs.lib.genAttrs ocamlPackageSets (
     ocamlPackages: pkgs.lib.genAttrs packageNames (package: pkgs.ocaml-ng.${ocamlPackages}.${package})
@@ -48,6 +51,9 @@ outputs
 // {
   inherit (pkgs.ocamlPackages)
     cows
+    cohttp
+    cohttp-eio
+    http
     ;
   inherit (pkgs.cows)
     dev-shell
