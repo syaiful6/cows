@@ -16,6 +16,18 @@ module type WRITER = sig
   val string : t -> string -> unit
 end
 
+module Size_limit = struct
+  type t =
+    [ `No_size_limit
+    | `Size_limit of int64
+    ]
+
+  let default_max_frame = `Size_limit (Int64.of_int (10 * 1024 * 1024))
+
+  let at_most_limit : int64 -> t -> bool =
+   fun x t -> match t with `No_size_limit -> true | `Size_limit l -> x <= l
+end
+
 type error =
   | Insufficient_data
   | Reserved_bits_set
@@ -35,7 +47,12 @@ type t =
 
 exception Parse_error of error
 
-let parse (type r) (module R : READER with type t = r) (ic : r) =
+let parse
+      (type r)
+      ?(size_limit = Size_limit.default_max_frame)
+      (module R : READER with type t = r)
+      (ic : r)
+  =
   try
     let b0 = R.uint8 ic in
     let b1 = R.uint8 ic in
@@ -52,13 +69,20 @@ let parse (type r) (module R : READER with type t = r) (ic : r) =
     let len7 = b1 land 0x7f in
     let payload_len =
       match len7 with
-      | 126 -> R.uint16 ic
+      | 126 ->
+        let n = R.uint16 ic in
+        if not (Size_limit.at_most_limit (Int64.of_int n) size_limit)
+        then raise (Parse_error Frame_too_large);
+        n
       | 127 ->
         let n = R.uint64 ic in
-        if Int64.compare n (Int64.of_int max_int) > 0
+        if not (Size_limit.at_most_limit n size_limit)
         then raise (Parse_error Frame_too_large);
         Int64.to_int n
-      | n -> n
+      | n ->
+        if not (Size_limit.at_most_limit (Int64.of_int n) size_limit)
+        then raise (Parse_error Frame_too_large);
+        n
     in
     (match Opcode.to_kind opcode with
     | `Control ->

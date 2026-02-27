@@ -37,6 +37,13 @@ module Frame : sig
     val string : t -> string -> unit
   end
 
+  module Size_limit : sig
+    type t =
+      [ `No_size_limit
+      | `Size_limit of int64
+      ]
+  end
+
   type error =
     | Insufficient_data
     | Reserved_bits_set
@@ -56,7 +63,11 @@ module Frame : sig
 
   exception Parse_error of error
 
-  val parse : (module READER with type t = 'r) -> 'r -> (t, error) result
+  val parse :
+     ?size_limit:Size_limit.t
+    -> (module READER with type t = 'r)
+    -> 'r
+    -> (t, error) result
 
   val serialize :
      ?key:int
@@ -96,11 +107,26 @@ type conn
 
 val recv : conn -> Message.t
 val send : conn -> Message.t -> unit
+
 val close : ?code:int -> ?reason:string -> conn -> unit
+(** [close ?code ?reason conn] sends a Close frame to the peer.
+
+    When initiating the close, continue calling [recv] to drain any in-flight
+    messages. Once [recv] returns [`Close] (the peer's echo), the handshake is
+    complete and you should stop calling [recv].
+
+    When the peer initiates the close ([recv] returns [`Close] first), call
+    [close] to send the echo and then stop calling [recv].
+
+    In either case, [recv] may raise [Connection_closed] if the peer drops
+    the connection without completing the close handshake. *)
 
 val upgrade :
-   Http.Request.t
+   ?size_limit:Frame.Size_limit.t
+  -> Http.Request.t
   -> (conn -> unit)
-  -> [> `Expert of Http.Response.t * (Eio.Buf_read.t -> Eio.Buf_write.t -> unit)
-     | `Response of Cohttp_eio.Server.response Cohttp_eio.Server.IO.t
-     ]
+  -> Cohttp_eio.Server.response_action
+(** [upgrade ?size_limit req handler] performs the WebSocket handshake on [req]
+    and runs [handler] with the resulting connection. [size_limit] caps the payload
+    length accepted for every frame. Defaults to [`Size_limit 10MB]. Frames
+    exceeding the limit are rejected with a [Protocol_error]. *)

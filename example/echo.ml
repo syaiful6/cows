@@ -27,4 +27,8 @@ let () =
       ~callback:(fun _conn req _body -> Cows.upgrade req handler)
       ()
   in
-  Cohttp_eio.Server.run ~on_error:raise socket server
+  Cohttp_eio.Server.run
+    ~on_error:(fun exn ->
+      Logs.warn (fun f -> f "Uncaught exception %s" (Printexc.to_string exn)))
+    socket
+    server

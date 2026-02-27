@@ -51,15 +51,17 @@ type t =
   ; oc : Eio.Buf_write.t
   ; send_mutex : Eio.Mutex.t
   ; role : role
+  ; size_limit : Frame.Size_limit.t
   ; mutable frag_opcode : [ `Text | `Binary ] option
   ; mutable frag_buf : Buffer.t option
   }
 
-let create ~role ic oc =
+let create ?(size_limit = Frame.Size_limit.default_max_frame) ~role ic oc =
   { ic
   ; oc
   ; send_mutex = Eio.Mutex.create ()
   ; role
+  ; size_limit
   ; frag_opcode = None
   ; frag_buf = None
   }
@@ -130,7 +132,7 @@ let frame_error_to_string = function
   | Frame.Insufficient_data -> "insufficient data"
 
 let rec recv conn =
-  match Frame.parse (module Eio_reader) conn.ic with
+  match Frame.parse ~size_limit:conn.size_limit (module Eio_reader) conn.ic with
   | Error Frame.Insufficient_data ->
     Logs.debug (fun f -> f "Connection closed: insufficient data");
     raise Connection_closed
@@ -197,7 +199,7 @@ let rec recv conn =
         else recv conn)
     | `Ctrl _ | `Non_ctrl _ -> raise (Protocol_error "unknown opcode"))
 
-let upgrade req handler =
+let upgrade ?size_limit req handler =
   match Handshake.upgrade_headers req with
   | Error _ ->
     `Response
@@ -212,7 +214,7 @@ let upgrade req handler =
     `Expert
       ( response
       , fun ic oc ->
-          let conn = create ~role:Server ic oc in
+          let conn = create ?size_limit ~role:Server ic oc in
           (* wrap user handler so we guarantee that any exceptions are caught,
              and we correctly close the connection, users still able to catch
              those exceptions *)

@@ -69,6 +69,10 @@ let parse s =
   let r = Bytes_reader.create s in
   Cows.Frame.parse (module Bytes_reader) r
 
+let parse_with_limit size_limit s =
+  let r = Bytes_reader.create s in
+  Cows.Frame.parse ~size_limit (module Bytes_reader) r
+
 let serialize ?key frame =
   let buf = Buffer.create 16 in
   Cows.Frame.serialize ?key (module Buffer_writer) buf frame;
@@ -83,11 +87,6 @@ let frame_error =
   Alcotest.testable
     (fun ppf _ -> Format.pp_print_string ppf "frame_error")
     ( = )
-
-let sanity_check () =
-  let expected = 5 in
-  let actual = 2 + 3 in
-  Alcotest.(check int) "sanity check" expected actual
 
 let mask_rfc_example () =
   let key = 0x37fa213d in
@@ -316,11 +315,58 @@ let utf8_invalid () =
   utf8_check "2-byte bad cont" false "\xC2\x20";
   utf8_check "3-byte bad cont2" false "\xE2\x82\x20"
 
+(* FIN + Binary opcode header byte *)
+let binary_hdr = '\x82'
+
+(* size limit: small (len7 <= 125) encoding exceeds limit *)
+let size_limit_exceeded_len7 () =
+  (* limit=3, frame payload len=5; error raised before payload is read *)
+  let limit = `Size_limit 3L in
+  match parse_with_limit limit (String.make 1 binary_hdr ^ "\x05") with
+  | Error e ->
+    Alcotest.(check frame_error) "len7 exceeded" Cows.Frame.Frame_too_large e
+  | Ok _ -> Alcotest.fail "expected Frame_too_large"
+
+let size_limit_exceeded_uint16 () =
+  (* limit=100, frame payload len=200 encoded as ext uint16 *)
+  let limit = `Size_limit 100L in
+  match parse_with_limit limit (String.make 1 binary_hdr ^ "\x7e\x00\xc8") with
+  | Error e ->
+    Alcotest.(check frame_error) "uint16 exceeded" Cows.Frame.Frame_too_large e
+  | Ok _ -> Alcotest.fail "expected Frame_too_large"
+
+let size_limit_exceeded_uint64 () =
+  (* limit=100, frame payload len=65536 encoded as ext uint64 *)
+  let limit = `Size_limit 100L in
+  match
+    parse_with_limit
+      limit
+      (String.make 1 binary_hdr ^ "\x7f\x00\x00\x00\x00\x00\x01\x00\x00")
+  with
+  | Error e ->
+    Alcotest.(check frame_error) "uint64 exceeded" Cows.Frame.Frame_too_large e
+  | Ok _ -> Alcotest.fail "expected Frame_too_large"
+
+let size_limit_at_boundary () =
+  let limit = `Size_limit 5L in
+  match parse_with_limit limit (String.make 1 binary_hdr ^ "\x05Hello") with
+  | Ok f -> Alcotest.(check string) "content" "Hello" f.content
+  | Error _ -> Alcotest.fail "frame at limit should be accepted"
+
+let size_limit_no_limit () =
+  let payload = String.make 200 'x' in
+  match
+    parse_with_limit
+      `No_size_limit
+      (String.make 1 binary_hdr ^ "\x7e\x00\xc8" ^ payload)
+  with
+  | Ok f -> Alcotest.(check string) "content" payload f.content
+  | Error _ -> Alcotest.fail "no-limit parse failed"
+
 let () =
   Alcotest.run
     "cows Test"
-    [ "Basic", [ Alcotest.test_case "sanity check" `Quick sanity_check ]
-    ; ( "Mask"
+    [ ( "Mask"
       , [ Alcotest.test_case "RFC 6455 example" `Quick mask_rfc_example
         ; Alcotest.test_case "roundtrip" `Quick mask_roundtrip
         ; Alcotest.test_case "empty payload" `Quick mask_empty
@@ -339,6 +385,25 @@ let () =
             parse_control_fragmented
         ; Alcotest.test_case "control too large" `Quick parse_control_too_large
         ; Alcotest.test_case "insufficient data" `Quick parse_insufficient_data
+        ] )
+    ; ( "Frame.parse size_limit"
+      , [ Alcotest.test_case
+            "exceeded len7 encoding"
+            `Quick
+            size_limit_exceeded_len7
+        ; Alcotest.test_case
+            "exceeded uint16 encoding"
+            `Quick
+            size_limit_exceeded_uint16
+        ; Alcotest.test_case
+            "exceeded uint64 encoding"
+            `Quick
+            size_limit_exceeded_uint64
+        ; Alcotest.test_case
+            "at boundary accepted"
+            `Quick
+            size_limit_at_boundary
+        ; Alcotest.test_case "no limit accepts large" `Quick size_limit_no_limit
         ] )
     ; ( "Frame.serialize"
       , [ Alcotest.test_case "unmasked wire bytes" `Quick serialize_unmasked
