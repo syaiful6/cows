@@ -236,12 +236,12 @@ let handshake_ok () =
   in
   let req = make_upgrade_request headers in
   match Cows.Private.Handshake.upgrade_headers req with
-  | Ok h ->
+  | Some h ->
     Alcotest.(check string)
       "accept"
       "s3pPLMBiTxaQ9kYGzzhZRbK+xOo="
       (Http.Header.get h "sec-websocket-accept" |> Option.get)
-  | Error _ -> Alcotest.fail "expected Ok"
+  | None -> Alcotest.fail "expected headers"
 
 let handshake_missing_key () =
   let headers =
@@ -253,7 +253,7 @@ let handshake_missing_key () =
   in
   let req = make_upgrade_request headers in
   match Cows.Private.Handshake.upgrade_headers req with
-  | Error Cows.Private.Handshake.Missing_key_header -> ()
+  | None -> ()
   | _ -> Alcotest.fail "expected Missing_key_header"
 
 let handshake_bad_version () =
@@ -267,7 +267,7 @@ let handshake_bad_version () =
   in
   let req = make_upgrade_request headers in
   match Cows.Private.Handshake.upgrade_headers req with
-  | Error Cows.Private.Handshake.Bad_version -> ()
+  | None -> ()
   | _ -> Alcotest.fail "expected Bad_version"
 
 let utf8_check label expect s =

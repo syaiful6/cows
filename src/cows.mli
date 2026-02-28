@@ -103,7 +103,22 @@ module Message : sig
     ]
 end
 
+type role =
+  | Server
+  | Client
+
 type conn
+
+val make :
+   ?size_limit:Frame.Size_limit.t
+  -> role:role
+  -> Eio.Buf_read.t
+  -> Eio.Buf_write.t
+  -> conn
+(** [make ?size_limit ~role ic oc] creates a WebSocket connection from [ic] and [oc].
+    [size_limit] caps the payload length accepted for every frame. Defaults to
+    [`Size_limit 64MB]. Frames exceeding the limit are rejected with a
+    [Protocol_error]. *)
 
 val recv : conn -> Message.t
 val send : conn -> Message.t -> unit
@@ -130,3 +145,7 @@ val upgrade :
     and runs [handler] with the resulting connection. [size_limit] caps the payload
     length accepted for every frame. Defaults to [`Size_limit 64MB]. Frames
     exceeding the limit are rejected with a [Protocol_error]. *)
+
+val upgrade_headers : Http.Request.t -> Http.Header.t option
+(** [upgrade_headers req] returns the headers that should be included in the
+    response to a WebSocket upgrade request. *)

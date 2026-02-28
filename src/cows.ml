@@ -12,9 +12,15 @@ exception Protocol_error = Conn.Protocol_error
 
 module Message = Conn.Message
 
+type role = Conn.role =
+  | Server
+  | Client
+
 type conn = Conn.t
 
+let make = Conn.make
 let recv = Conn.recv
 let send = Conn.send
 let close = Conn.close
 let upgrade = Conn.upgrade
+let upgrade_headers = Handshake.upgrade_headers
