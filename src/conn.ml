@@ -25,7 +25,6 @@ type role =
   | Client
 
 exception Connection_closed
-exception Close_request of int * string
 exception Protocol_error of string
 
 module Message = struct
