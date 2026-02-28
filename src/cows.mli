@@ -128,5 +128,5 @@ val upgrade :
   -> Cohttp_eio.Server.response_action
 (** [upgrade ?size_limit req handler] performs the WebSocket handshake on [req]
     and runs [handler] with the resulting connection. [size_limit] caps the payload
-    length accepted for every frame. Defaults to [`Size_limit 10MB]. Frames
+    length accepted for every frame. Defaults to [`Size_limit 64MB]. Frames
     exceeding the limit are rejected with a [Protocol_error]. *)

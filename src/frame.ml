@@ -22,7 +22,7 @@ module Size_limit = struct
     | `Size_limit of int64
     ]
 
-  let default_max_frame = `Size_limit (Int64.of_int (10 * 1024 * 1024))
+  let default_max_frame = `Size_limit (Int64.of_int (64 * 1024 * 1024))
 
   let at_most_limit : int64 -> t -> bool =
    fun x t -> match t with `No_size_limit -> true | `Size_limit l -> x <= l
