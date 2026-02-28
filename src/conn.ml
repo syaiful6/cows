@@ -55,7 +55,7 @@ type t =
   ; mutable frag_buf : Buffer.t option
   }
 
-let create ?(size_limit = Frame.Size_limit.default_max_frame) ~role ic oc =
+let make ?(size_limit = Frame.Size_limit.default_max_frame) ~role ic oc =
   { ic
   ; oc
   ; send_mutex = Eio.Mutex.create ()
@@ -200,20 +200,20 @@ let rec recv conn =
 
 let upgrade ?size_limit req handler =
   match Handshake.upgrade_headers req with
-  | Error _ ->
+  | None ->
     `Response
       (Cohttp_eio.Server.respond_string
          ~status:`Bad_request
          ~body:"Bad WebSocket handshake"
          ())
-  | Ok resp_headers ->
+  | Some resp_headers ->
     let response =
       Http.Response.make ~status:`Switching_protocols ~headers:resp_headers ()
     in
     `Expert
       ( response
       , fun ic oc ->
-          let conn = create ?size_limit ~role:Server ic oc in
+          let conn = make ?size_limit ~role:Server ic oc in
           (* wrap user handler so we guarantee that any exceptions are caught,
              and we correctly close the connection, users still able to catch
              those exceptions *)

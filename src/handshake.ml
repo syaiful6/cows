@@ -2,13 +2,6 @@
 
 let websocket_guid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11"
 
-type error =
-  | Not_a_get
-  | Missing_upgrade_header
-  | Missing_connection_header
-  | Missing_key_header
-  | Bad_version
-
 let accept_header_value key =
   let input = key ^ websocket_guid in
   let digest = Digestif.SHA1.(digest_string input |> to_raw_string) in
@@ -32,35 +25,24 @@ let header_contains_ci value token =
     done;
     !found
 
+let ( let* ) b f = Option.bind b f
+let ( let*? ) s f = if s then f () else None
+
 let upgrade_headers req =
   let headers = Http.Request.headers req in
   let meth = Http.Request.meth req in
-  if meth <> `GET
-  then Error Not_a_get
-  else
-    match Http.Header.get headers "upgrade" with
-    | None -> Error Missing_upgrade_header
-    | Some upgrade when String.lowercase_ascii upgrade <> "websocket" ->
-      Error Missing_upgrade_header
-    | Some _ ->
-      (match Http.Header.get headers "connection" with
-      | None -> Error Missing_connection_header
-      | Some conn when not (header_contains_ci conn "upgrade") ->
-        Error Missing_connection_header
-      | Some _ ->
-        (match Http.Header.get headers "sec-websocket-version" with
-        | Some v when String.trim v <> "13" -> Error Bad_version
-        | None -> Error Bad_version
-        | Some _ ->
-          (match Http.Header.get headers "sec-websocket-key" with
-          | None -> Error Missing_key_header
-          | Some key ->
-            let accept = accept_header_value (String.trim key) in
-            let resp_headers =
-              Http.Header.of_list
-                [ "upgrade", "websocket"
-                ; "connection", "Upgrade"
-                ; "sec-websocket-accept", accept
-                ]
-            in
-            Ok resp_headers)))
+  let*? _ = match meth with `GET -> true | _ -> true in
+  let* upgrade = Http.Header.get headers "upgrade" in
+  let*? _ = String.lowercase_ascii upgrade = "websocket" in
+  let* conn = Http.Header.get headers "connection" in
+  let*? _ = header_contains_ci conn "upgrade" in
+  let* version = Http.Header.get headers "sec-websocket-version" in
+  let*? _ = String.trim version = "13" in
+  let* key = Http.Header.get headers "sec-websocket-key" in
+  let accept = accept_header_value (String.trim key) in
+  Option.some
+    (Http.Header.of_list
+       [ "upgrade", "websocket"
+       ; "connection", "Upgrade"
+       ; "sec-websocket-accept", accept
+       ])
