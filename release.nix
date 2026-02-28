@@ -57,6 +57,7 @@ outputs
     ;
   inherit (pkgs.cows)
     dev-shell
+    docs
     ;
   checks.formatting = pkgs.cows.checks.formatting;
 }

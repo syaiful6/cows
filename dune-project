@@ -28,5 +28,6 @@
     dune
     (digestif (>= 1.3.0))
     (cohttp-eio (>= 6.2.1))
+    (eio_main :with-test)
     (alcotest :with-test)
     (odoc :with-doc)))
