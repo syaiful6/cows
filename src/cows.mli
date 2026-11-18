@@ -121,7 +121,39 @@ val make :
     [Protocol_error]. *)
 
 val recv : conn -> Message.t
+(** [recv conn] waits for and returns the next complete message.
+
+    It reassembles fragmented data messages and validates UTF-8 in text
+    messages. Control frames are returned immediately, including those received
+    between fragments. Reply to [`Ping data] with [send conn (`Pong data)] and
+    handle [`Close] as described in {!close}. An empty Close frame is returned
+    as [`Close (1005, "")].
+
+    The [size_limit] passed to {!make} or {!upgrade} applies to individual
+    frames, not reassembled messages.
+
+    @raise Connection_closed if the peer closes the underlying connection,
+    including while a frame is being read.
+    @raise Protocol_error if the peer sends an invalid frame or message. For a
+    malformed Close frame, [recv] first sends a Close frame with code 1002. *)
+
 val send : conn -> Message.t -> unit
+(** [send conn msg] writes [msg] as one unfragmented frame.
+
+    Concurrent calls from multiple fibers are safe; a mutex prevents frames
+    from interleaving. Client connections mask frames with a fresh random key.
+    Server connections do not mask them.
+
+    A [`Close (code, reason)] frame is flushed immediately. Since code 1005
+    cannot appear on the wire, [send] replaces it with 1000. Use {!close} when
+    possible. Other messages remain buffered until the output is flushed.
+
+    [send] does not validate [msg]. Text must contain valid UTF-8. Ping and Pong
+    payloads must not exceed 125 bytes; for Close frames, that limit includes
+    the two-byte code.
+
+    Write errors propagate. After a write error, later calls to [send] on the
+    same connection also fail. *)
 
 val close : ?code:int -> ?reason:string -> conn -> unit
 (** [close ?code ?reason conn] sends a Close frame to the peer.
